@@ -1,0 +1,318 @@
+callback関数
+この関数、そっちで呼び出して―　と関数の引数に渡す関数の事
+javascriptではcallback()となってるとこで、引数で渡された関数が実行される
+
+5. Configuring a Step
+
+	5.1 Chunk-Oriented Processing
+		5.1.1 Configuring a Step
+			reader 
+			writer 
+			transaction-manager
+			job-repository
+			commit-interval
+		
+		5.1.2 Inheriting from a Parent Step
+			親ステップを作って引き継ぐことができるよ
+			同じ設定は子ステップが上書きするよ
+			設定のMergeもできるよ
+		
+			Abstract Step
+			Merging Lists
+
+		5.1.3 The Commit Interval
+			1トランザクションで指定のコミット数を処理するよ
+			readerで10個itemを読み込んだら、その塊をwriterに渡してwriterが書き込んでcommit
+		
+		5.1.4 Configuring a Step for Restart
+			StepのリスタートにはStepに多大な影響を与えるから、特殊な設定が必要になるよ
+		
+			Setting a StartLimit
+				１回だけしか動くことを想定していないから、リスタートにはリソースなどを手動で直してからでないといけないシナリオかもね
+				初期値はInteger.MAX_VALUE(2^31-1)
+				
+			
+			Restarting a completed step
+				通常COMPLETEしてたら、そのStepをSkipする
+				クリーンやvalidationのように
+				一度COMPLETEしてても、何度でも動いてほしい場合があるよね
+				その時は「allow-start-if-complete="true"」を設定するといいよ
+				初期値はfalse
+			
+			Step Restart Configuration Example
+				playerload
+					ファイル読み込み
+					１度だけ実行
+						※追加設定が不要
+						  無制限に開始可能
+						  もしCOMPLETEしてたらスキップ
+				
+				gameLoad
+					試合ごとに読み込む
+					追加ファイルが来るたびに実行する必要がある
+					データベースに読み込ませたら消す
+					
+				playerSummarization
+
+		5.1.5 Configuring Skip Logic
+			
+			
+			スキップしたいExceptionを定義するだけ
+		
+		5.1.6 Configuring Retry Logic
+			Dead lockなんかはリトライすれば成功するだろうから、リトライすべし
+		
+		
+		5.1.7 Controlling Rollback
+			デフォルトでは、retryやskipを設定していない場合、ItemWriterで起きた例外は
+			stepでロールバックするよ
+			
+			skipやretryの設定をしている場合、ItemReaderで起きた例外はロールバックしないよ
+			そもそもトランザクションを無効にするようにしていない場合、ロールバックしない
+			ロールバックしないでっていう設定もできるよ
+			
+		
+			Transactional Readers
+				基本的にItemReader読み込んだ入力データを、stepはバッファに保管するため、
+				ロールバックする場合は、itemの再読み込みは必要ない
+
+				だけど、JMSのようにReaderでトランザクションの開始が発生する場合、
+				QueueはTransactionと結びついてるから、
+				ロールバックした場合、Queueから取り出したメッセージがQueueに戻ることになるよ
+				そんな時のために、bufferにitemを保管しないように設定できるよ
+				
+				JMSキュー　java message service queue
+					Javaでメッセージ通信（非同期通信）をするための
+			
+		5.1.8 Transaction Attributes
+			Transactionの設定
+				isolation：トランザクションの分離レベル
+				propagation：どんな場合にトランザクションを開始するか
+				timeout
+		
+		5.1.9 Registering ItemStreams with the Step
+			StepではItemStreamのcallbackを気にするべきである
+
+			ItemStreamは、Stepが取得する実行する間に保管された状態であり
+			stepがリスタートする際に必要とする情報である。
+			
+			ItemReaderやWriterがItemStreamを実装している場合,自動的に登録される
+			それ以外の場合は、Streamを個別に登録する必要がある（readerやwriterをInjectionされる場合とか）
+			その時は、xmlの<streams>に記述してやる
+			
+			<step>の中にある場合は、指定する必要がない
+			reader, processor, writerなどでInjectionや委譲先のbeanのみstreamに登録する必要がある
+			そうすることで、stepが失敗した際の実行情報を保管できる
+			
+		
+		5.1.10 Intercepting Step Execution
+			ファイルを書き込む際のheaderやfotterに使える
+				
+		
+			（略）
+				StepExecutionListener
+				ChunkListener
+				ItemReadListener
+				ItemProcessListener
+				ItemWriteListener
+				SkipListener
+			
+			
+			SkipListeners and Transactions
+				使い道はskipしたitemをログ出力する
+				
+					1itemにつき1回skipメソッドが実行される
+					skipLisnerはトランザクションがコミットされる直前に呼ばれる
+						→リスナーによるトランザクションのリソースはItemWriter内でロールバックされない
+
+	5.2 TaskletStep	（省略）
+	
+	5.3 Controlling Step Flow
+		最初のStepはxmlに書かれている中で一番上に定義されているやつを実施する。
+
+
+		5.3.1 Sequential Flow
+			step要素の中にnext属性で、どの順番でStepを実行するか指定ができる
+
+		5.3.2 Conditional Flow
+			複雑なシナリオを操作するため、SpringBatchはstep要素の中にtransaction要素を定義できる
+			そのようなtransactionとはnext要素である（つまりここで言うnext要素はtransactionである）
+			next属性のようにnext要素は次にどのstepを実行すればいいかJobに教えげれる。
+			しかしnext属性とは違い、next要素はStepで与えられ、失敗時のデフォルトなふるまいはない
+			☆つまり、もしtransaction要素（next要素）が使われたら、stepのトランザクションのすべてのふるまいを明白にしていなければならない
+			また1つのstepではnext属性とtransaction要素を同時に持てない
+
+			on属性はStepの実行結果であるExitStatus
+			正規表現では*または?が使える
+				*：0～n文字が自由
+				?：1文字自由
+
+			on属性はいくつでもStepに定義できる
+			on属性で網羅していないExitStatusが来た場合、Jobは失敗し例外が発生する
+			フレームワークは自動的にあいまいな条件より明確な条件の方にトランザクションを制御する
+		
+			Batch Status vs. Exit Status
+				ジョブフローを設定する場合に重要
+				BatchStatusはJobExectionとStepExecutionのプロパティが列挙されている
+				また、フレームワークによってJobやStepの状態を記録するために使われている
+				自分自身の状態を説明するためのものである
+		
+				next要素ではExitStatusを見ている
+					ExitStatusは実行終了時のStepの状態を表している
+				
+					BatchStatus
+						実行状態を表している
+						Statusは列挙型なので、カスタマイズできない
+						
+					ExitStatus
+						実行後状態を表している
+						Statusは文字列で自由にカスタマイズできる
+						
+				初期ではexit codeはBatchStatusと同じである
+
+
+		5.3.3 Configuring for Stop
+			StepのStatusは実行後のCodeで決まるのに対し、
+			JobのStatusは設定によって決まる
+
+			もしStepのExitStatusがFAILEDなら、JobのBatchStatusとExitStatusもFAILEDになる
+			一方、JobのBatchStatusとExitStatusはCOMPLETEDになる（意味が分からない）
+			
+			Jobの停止要素は決められたBatchStatusの値にしてジョブを終了する
+
+			停止要素はStepのBatchStatusにもExitStatusにも影響を与えない
+			Jobの最後のStatusにしか影響を与えない
+			つまり、StepのstatusはFAILDEDでもJobはCOMPLETEDにできる
+
+			Job：Exit Status
+				 Batch Status
+			Step：Exit Status
+				  Batch Status
+
+
+			The 'End' Element
+				End要素はJobにBatchStatusのCOMPLETEDで停止するように伝える
+				exit-code属性でカスタマイズしたJobのExitStatusを指定することもできる
+				exit-code属性がない場合、デフォルトでCOMPLETEDとなる
+
+			The 'Fail' Element
+				exit-code属性がない場合、デフォルトでFAILEDとなる
+
+
+			The 'Stop' Element
+				Stop要素は、restart属性が必須（どのstepから開始するか指定）
+			
+			
+		5.3.4 Programmatic Flow Decisions
+			ExitStatusより情報が欲しい場合、JobExecutionDeciderとdecisionを使うとよろし
+		
+		5.3.5 Split Flows
+			並列処理
+		
+		5.3.6 Externalizing Flow Definitions and Dependencies Between Jobs
+			Stepのフローを外部に出す
+				①flow要素でStepの処理順序を切り出し、insertができる
+				②JobStep
+					別のJobを生成し開始する
+					step要素の中でjobを定義
+						jobParamaterExtractor
+							どのようにStepのExecutionContextがjobParamaterに変換されるかを決める戦略である
+					JobStopはJobやStepをモニタリングやレポートする溜めの粒度あるオプションがほしいときに役に立つ
+
+				Job間でどのように依存性を生成するのか
+				巨大なシステムを小さなmoduleにし、ジョブのフローを制御するのに役立つ
+				Stepがジョブに委譲するためのもの
+				
+				→つまり、どのStepでどんなJobを生成して実行するか指定できる
+
+	
+	5.4 Late Binding of Job and Step Attributes
+		ItemReaderなどのインスタンスが生成・削除されるタイミング
+		step, jobはSpring Batch専用
+		jobの場合，次のstepに行っても、インスタンスが維持されるため、
+		次stepから前stepのインスタンスにアクセスできる
+		
+		パラメータで、JobParam, JobExectionContext, StepExectionContextに値を設定できる
+		
+		value="#{jobParameters['input.file.name']}"
+		value="#{jobExecutionContext['input.file.name']}" 
+		value="#{stepExecutionContext['input.file.name']}"
+	
+	
+		5.4.1 Step Scope
+		5.4.2 Job Scope
+			いつItemReaderとかのインスタンスが生成されるか
+
+6. ItemReaders and ItemWriters
+	6.1. ItemReader
+		・Flie
+		・xml
+		・DB
+	
+		1itemかnullを返す
+	
+		ItemRaderは前にのみ進んでいく
+		しかし、もととなるリソースがトランザクション（JMAキューのように）だった場合
+		後続処理がロールバックを呼ぶ場合、readは同じ論理itemを返す
+		itemが不足している場合、価値がない
+		例えば、ItemReaderでDBの取得結果が0だった場合、null
+	
+	6.2. ItemWriter
+		listを出力したら、writeメソッドから戻る前に、flushが実行されうる
+	
+	
+	6.3. ItemProcessor
+		6.3.1. Chaining ItemProcessors
+			CompositeItemProcessorを使って、複数のItemProcessorを実行することができる
+				compositパターン
+					容器と中身を同一視する（フォルダとファイル）
+		
+		6.3.2. Filtering Records
+			skip：適切なitemでない
+			filter：書くべきでないitem
+			nullをreturnすればwriterに渡さないよ
+		
+		
+		6.3.3. Fault Tolerance
+			chunkをロールバックしたとき、読み込み中にcacheされたitemは再処理される
+			でも、stepにfail tolerantを設定していた場合、ItemProcessorは何度処理しても同じ結果となる
+			
+	
+	6.4. ItemStream
+		restart可能とするために必要
+		以下のメソッド内で、ExectionCntextにデータ保存をする
+		open():step開始時：fileを開いたり、DB接続したり
+		update():commit直前：ExectionContextに保存する
+		close():step終了：openで開いたファイルなどを閉じる
+	
+	
+		共通の懸念として、異なるinterfaceが必要
+		一般的に,open,close,persistが必要
+	
+	
+	6.5. The Delegate Pattern and Registering with the Step
+	6.6. Flat Files
+		6.6.1. The FieldSet
+		6.6.2. FlatFileItemReader
+		6.6.3. FlatFileItemWriter
+
+	6.7. XML Item Readers and Writers
+		6.7.1. StaxEventItemReader
+		6.7.2. StaxEventItemWriter
+	
+	
+	6.8. Multi-File Input
+	6.9. Database
+		6.9.1. Cursor Based ItemReaders
+		6.9.2. Paging ItemReaders
+		6.9.3. Database ItemWriters
+	
+	6.10. Reusing Existing Services
+		既にあるサービスをreaderやwriterのようにして実装したい場合
+		adapterを用意してるよ
+
+	6.11. Validating Input
+	6.12. Preventing State Persistence
+	6.13. Creating Custom ItemReaders and ItemWriters
+		6.13.1. Custom ItemReader Example
+		6.13.2. Custom ItemWriter Example
